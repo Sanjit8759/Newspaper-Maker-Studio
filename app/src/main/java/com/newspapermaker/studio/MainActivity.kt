@@ -21,9 +21,8 @@ data class NewsArticle(
 )
 
 data class NewsPage(
-    val articles: MutableList<NewsArticle> = mutableListOf(
-        NewsArticle()
-    )
+    val articles: MutableList<NewsArticle> =
+        mutableListOf(NewsArticle())
 )
 
 class MainActivity : Activity() {
@@ -130,7 +129,7 @@ class MainActivity : Activity() {
             loadArticle()
         }
 
-        addButton("আগের খবর") {
+        addButton("← আগের খবর") {
             saveArticle()
 
             if (articleIndex > 0) {
@@ -141,7 +140,7 @@ class MainActivity : Activity() {
             }
         }
 
-        addButton("পরের খবর") {
+        addButton("পরের খবর →") {
             saveArticle()
 
             if (articleIndex < currentPage().articles.lastIndex) {
@@ -309,12 +308,13 @@ class MainActivity : Activity() {
         if (selectedImage.isNotEmpty()) {
             try {
                 val uri = Uri.parse(selectedImage)
-                val bitmap = contentResolver.openInputStream(uri).use {
-                    BitmapFactory.decodeStream(it)
-                }
 
-                if (bitmap != null) {
-                    imagePreview.setImageBitmap(bitmap)
+                contentResolver.openInputStream(uri).use {
+                    val bitmap = BitmapFactory.decodeStream(it)
+
+                    if (bitmap != null) {
+                        imagePreview.setImageBitmap(bitmap)
+                    }
                 }
             } catch (_: Exception) {
                 message("ছবিটি পাওয়া যাচ্ছে না")
@@ -345,7 +345,9 @@ class MainActivity : Activity() {
     ) {
         super.onActivityResult(requestCode, resultCode, data)
 
-        if (requestCode == 200 && resultCode == RESULT_OK) {
+        if (resultCode != RESULT_OK) return
+
+        if (requestCode == 200) {
 
             val uri = data?.data ?: return
 
@@ -367,7 +369,7 @@ class MainActivity : Activity() {
             }
         }
 
-        if (requestCode == 101 && resultCode == RESULT_OK) {
+        if (requestCode == 101) {
             val uri = data?.data ?: return
             exportPdf(uri)
         }
@@ -393,11 +395,12 @@ class MainActivity : Activity() {
 
         val pdf = PdfDocument()
 
+        var activePage: PdfDocument.Page? = null
+        var canvas: Canvas? = null
         var pdfPageNumber = 0
-        var canvas: Canvas
         var y = 0f
 
-        fun startPdfPage(): Canvas {
+        fun startPdfPage() {
 
             pdfPageNumber++
 
@@ -407,30 +410,37 @@ class MainActivity : Activity() {
                 pdfPageNumber
             ).create()
 
-            val page = pdf.startPage(info)
+            activePage = pdf.startPage(info)
+            canvas = activePage!!.canvas
 
-            val c = page.canvas
-            c.drawColor(Color.WHITE)
+            canvas!!.drawColor(Color.WHITE)
 
-            val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = Color.BLACK
-                textAlign = Paint.Align.CENTER
-                typeface = Typeface.create(
-                    "sans-serif",
-                    Typeface.BOLD
-                )
-                textSize = 26f
-            }
+            val paint = Paint(
+                Paint.ANTI_ALIAS_FLAG
+            )
+
+            paint.color = Color.BLACK
+            paint.textAlign = Paint.Align.CENTER
+            paint.typeface = Typeface.create(
+                "sans-serif",
+                Typeface.BOLD
+            )
+            paint.textSize = 26f
 
             val name = paperName.text.toString()
                 .ifBlank { "আমার সংবাদপত্র" }
 
-            c.drawText(name, 297f, 42f, paint)
+            canvas!!.drawText(
+                name,
+                297f,
+                42f,
+                paint
+            )
 
             paint.textSize = 12f
             paint.typeface = Typeface.DEFAULT
 
-            c.drawText(
+            canvas!!.drawText(
                 paperDate.text.toString(),
                 297f,
                 65f,
@@ -439,28 +449,121 @@ class MainActivity : Activity() {
 
             paint.strokeWidth = 2f
 
-            c.drawLine(
+            canvas!!.drawLine(
                 30f, 80f, 565f, 80f, paint
             )
 
             y = 100f
-
-            return c
         }
 
         fun finishPdfPage() {
-            pdf.finishPage(
-                pdf.getPage(pdfPageNumber)
-            )
+            val page = activePage
+            if (page != null) {
+                pdf.finishPage(page)
+                activePage = null
+                canvas = null
+            }
+        }
+
+        fun drawLayoutPaged(
+            layout: StaticLayout,
+            x: Float,
+            width: Float
+        ) {
+
+            var firstLine = 0
+
+            while (firstLine < layout.lineCount) {
+
+                var currentCanvas = canvas
+
+                if (currentCanvas == null || y > 790f) {
+                    finishPdfPage()
+                    startPdfPage()
+                    currentCanvas = canvas
+                }
+
+                val availableHeight = 790f - y
+
+                if (availableHeight < 20f) {
+                    finishPdfPage()
+                    startPdfPage()
+                    currentCanvas = canvas
+                }
+
+                var lastLine = firstLine
+
+                while (lastLine < layout.lineCount) {
+
+                    val height =
+                        layout.getLineBottom(lastLine) -
+                        layout.getLineTop(firstLine)
+
+                    if (height > (790f - y) &&
+                        lastLine > firstLine
+                    ) {
+                        break
+                    }
+
+                    lastLine++
+
+                    if (height > 790f) break
+                }
+
+                if (lastLine == firstLine) {
+                    lastLine++
+                }
+
+                val top = layout.getLineTop(firstLine)
+                val bottom = layout.getLineBottom(lastLine - 1)
+
+                val segmentHeight = bottom - top
+
+                currentCanvas!!.save()
+
+                currentCanvas.clipRect(
+                    x,
+                    y,
+                    x + width,
+                    y + segmentHeight
+                )
+
+                currentCanvas.translate(
+                    x,
+                    y - top
+                )
+
+                layout.draw(currentCanvas)
+
+                currentCanvas.restore()
+
+                y += segmentHeight + 3f
+
+                firstLine = lastLine
+
+                if (firstLine < layout.lineCount) {
+                    finishPdfPage()
+                    startPdfPage()
+                }
+            }
         }
 
         try {
 
-            canvas = startPdfPage()
+            startPdfPage()
 
-            for (page in pages) {
+            pages.forEachIndexed { pageIndex, page ->
 
-                for (article in page.articles) {
+                if (pageIndex > 0) {
+                    finishPdfPage()
+                    startPdfPage()
+                }
+
+                page.articles.forEach { article ->
+
+                    val title = article.title.ifBlank {
+                        "সংবাদের শিরোনাম"
+                    }
 
                     val titlePaint = TextPaint(
                         Paint.ANTI_ALIAS_FLAG
@@ -471,10 +574,6 @@ class MainActivity : Activity() {
                             "sans-serif",
                             Typeface.BOLD
                         )
-                    }
-
-                    val title = article.title.ifBlank {
-                        "সংবাদের শিরোনাম"
                     }
 
                     val titleLayout =
@@ -491,14 +590,14 @@ class MainActivity : Activity() {
                         .setIncludePad(true)
                         .build()
 
+                    val body = article.description
+
                     val bodyPaint = TextPaint(
                         Paint.ANTI_ALIAS_FLAG
                     ).apply {
                         color = Color.BLACK
                         textSize = 13f
                     }
-
-                    val body = article.description
 
                     val bodyLayout =
                         StaticLayout.Builder.obtain(
@@ -533,24 +632,32 @@ class MainActivity : Activity() {
                     val imageHeight =
                         if (bitmap != null) 105f else 0f
 
-                    val blockHeight =
+                    val estimatedHeight =
                         titleLayout.height +
                         imageHeight +
-                        bodyLayout.height + 30f
+                        bodyLayout.height + 35f
 
-                    if (y + blockHeight > 800f) {
+                    if (y + estimatedHeight > 790f &&
+                        y > 110f
+                    ) {
                         finishPdfPage()
-                        canvas = startPdfPage()
+                        startPdfPage()
                     }
 
-                    canvas.save()
-                    canvas.translate(35f, y)
-                    titleLayout.draw(canvas)
-                    canvas.restore()
+                    drawLayoutPaged(
+                        titleLayout,
+                        35f,
+                        525f
+                    )
 
-                    y += titleLayout.height + 8f
+                    y += 7f
 
                     if (bitmap != null) {
+
+                        if (y + 105f > 790f) {
+                            finishPdfPage()
+                            startPdfPage()
+                        }
 
                         val rect = RectF(
                             35f,
@@ -561,10 +668,10 @@ class MainActivity : Activity() {
 
                         val imagePaint = Paint(
                             Paint.ANTI_ALIAS_FLAG or
-                                Paint.FILTER_BITMAP_FLAG
+                            Paint.FILTER_BITMAP_FLAG
                         )
 
-                        canvas.drawBitmap(
+                        canvas!!.drawBitmap(
                             bitmap,
                             null,
                             rect,
@@ -574,43 +681,62 @@ class MainActivity : Activity() {
                         y += 108f
                     }
 
-                    canvas.save()
-                    canvas.translate(35f, y)
-                    bodyLayout.draw(canvas)
-                    canvas.restore()
-
-                    y += bodyLayout.height + 18f
-
-                    val linePaint = Paint().apply {
-                        color = Color.LTGRAY
-                        strokeWidth = 1f
-                    }
-
-                    canvas.drawLine(
-                        35f, y, 560f, y, linePaint
+                    drawLayoutPaged(
+                        bodyLayout,
+                        35f,
+                        525f
                     )
 
-                    y += 15f
+                    y += 12f
+
+                    if (y < 790f) {
+                        val linePaint = Paint().apply {
+                            color = Color.LTGRAY
+                            strokeWidth = 1f
+                        }
+
+                        canvas!!.drawLine(
+                            35f,
+                            y,
+                            560f,
+                            y,
+                            linePaint
+                        )
+
+                        y += 15f
+                    }
                 }
             }
 
             finishPdfPage()
 
+            // Page number on every PDF page
+            // is added during a later layout enhancement.
+
             contentResolver.openOutputStream(uri).use {
                 output ->
+
                 if (output == null) {
                     throw Exception("PDF ফাইল খোলা যায়নি")
                 }
+
                 pdf.writeTo(output)
             }
 
             pdf.close()
 
-            message("সম্পূর্ণ Newspaper PDF তৈরি হয়েছে!")
+            message(
+                "সম্পূর্ণ পত্রিকার PDF তৈরি হয়েছে!"
+            )
 
         } catch (e: Exception) {
 
-            pdf.close()
+            try {
+                finishPdfPage()
+                pdf.close()
+            } catch (_: Exception) {
+            }
+
             message("PDF Error: ${e.message}")
         }
     }
