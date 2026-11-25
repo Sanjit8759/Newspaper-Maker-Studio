@@ -7,6 +7,7 @@ import android.os.Bundle
 import android.content.Intent
 import android.graphics.*
 import android.graphics.pdf.PdfDocument
+import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.text.Layout
 import android.text.StaticLayout
@@ -16,7 +17,6 @@ import android.view.View
 import android.view.Gravity
 import android.view.ViewGroup
 import android.widget.*
-import android.graphics.drawable.GradientDrawable
 import kotlin.math.min
 import kotlin.math.max
 import java.text.SimpleDateFormat
@@ -31,10 +31,7 @@ data class NewsElement(
     var y: Float = 220f,
     var w: Float = 500f,
     var h: Float = 180f,
-    var fontSize: Float = 24f,
-    var textColor: Int = Color.BLACK,
-    var bold: Boolean = false,
-    var alignment: String = "LEFT"
+    var fontSize: Float = 24f
 )
 
 class MainActivity : Activity() {
@@ -51,18 +48,9 @@ class MainActivity : Activity() {
     private var paperHeight = 1584f
     private var paperType = "NEWSPAPER"
 
-    // Newspaper masthead settings
-
     private var paperName = "ES NEWS"
-    private var paperSubtitle = "সংবাদ • মতামত • স্থানীয় খবর"
+    private var paperTagline = "সংবাদ • মতামত • স্থানীয় খবর"
     private var paperDate = ""
-
-    private var mastheadColor = Color.rgb(25, 43, 67)
-    private var mastheadFontSize = 48f
-    private var mastheadAlignment = "CENTER"
-    private var mastheadLogoUri = ""
-
-    private var galleryTarget = "article"
 
     private lateinit var editor: NewspaperView
     private lateinit var pageLabel: TextView
@@ -76,19 +64,19 @@ class MainActivity : Activity() {
 
     private fun currentPage() = pages[pageIndex]
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-
-        paperDate = today()
-
-        createInterface()
-    }
-
-    private fun today(): String {
+    private fun dateNow(): String {
         return SimpleDateFormat(
             "dd-MM-yyyy",
             Locale.getDefault()
         ).format(Date())
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+
+        paperDate = dateNow()
+
+        createInterface()
     }
 
     // ---------------- MAIN INTERFACE ----------------
@@ -112,6 +100,8 @@ class MainActivity : Activity() {
 
         main.addView(header)
 
+        // First toolbar
+
         val toolbarScroll = HorizontalScrollView(this)
 
         val toolbar = LinearLayout(this).apply {
@@ -131,7 +121,7 @@ class MainActivity : Activity() {
         }
 
         tool(toolbar, "📷 ছবি") {
-            openGallery(false)
+            openGallery()
         }
 
         tool(toolbar, "✎ সম্পাদনা") {
@@ -142,9 +132,7 @@ class MainActivity : Activity() {
             deleteSelected()
         }
 
-        tool(toolbar, "✦ ডিজাইন লেখা") {
-            addText("custom")
-        }
+        // Second toolbar
 
         val secondScroll = HorizontalScrollView(this)
 
@@ -156,32 +144,27 @@ class MainActivity : Activity() {
         secondScroll.addView(secondToolbar)
         main.addView(secondScroll)
 
-        tool(secondToolbar, "📰 পত্রিকার নাম") {
-            newspaperDesign()
-        }
-
-        tool(secondToolbar, "＋ লোগো") {
-            openGallery(true)
-        }
-
-        tool(secondToolbar, "NEW PAPER") {
-            newPaper()
-        }
-
         tool(secondToolbar, "← আগের পৃষ্ঠা") {
             changePage(-1)
         }
 
         tool(secondToolbar, "＋ নতুন পৃষ্ঠা") {
-            pages.add(mutableListOf())
-            pageIndex = pages.lastIndex
-            selectedIndex = -1
-            updateEditor()
+            addNewPage()
         }
 
         tool(secondToolbar, "পরের পৃষ্ঠা →") {
             changePage(1)
         }
+
+        tool(secondToolbar, "Paper Size") {
+            changePaperSize()
+        }
+
+        tool(secondToolbar, "PDF Export") {
+            exportPdfDialog()
+        }
+
+        // Third toolbar
 
         val thirdScroll = HorizontalScrollView(this)
 
@@ -193,13 +176,15 @@ class MainActivity : Activity() {
         thirdScroll.addView(thirdToolbar)
         main.addView(thirdScroll)
 
-        tool(thirdToolbar, "Paper Size") {
-            changePaperSize()
+        tool(thirdToolbar, "📰 পত্রিকার নাম") {
+            changePaperName()
         }
 
-        tool(thirdToolbar, "PDF Export") {
-            exportPdfDialog()
+        tool(thirdToolbar, "＋ নতুন পত্রিকা") {
+            newNewspaper()
         }
+
+        // Information bar
 
         val infoBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -231,6 +216,8 @@ class MainActivity : Activity() {
 
         main.addView(infoBar)
 
+        // Newspaper canvas
+
         editor = NewspaperView()
 
         main.addView(
@@ -255,6 +242,8 @@ class MainActivity : Activity() {
 
         updateEditor()
     }
+
+    // ---------------- TOOLBAR BUTTON ----------------
 
     private fun tool(
         parent: LinearLayout,
@@ -290,6 +279,8 @@ class MainActivity : Activity() {
         )
     }
 
+    // ---------------- UPDATE ----------------
+
     private fun updateEditor() {
 
         pageLabel.text =
@@ -300,16 +291,48 @@ class MainActivity : Activity() {
         editor.invalidate()
     }
 
-    // ---------------- NEW PAPER ----------------
+    // ---------------- CHANGE PAGE ----------------
 
-    private fun newPaper() {
+    private fun changePage(direction: Int) {
+
+        val next = pageIndex + direction
+
+        if (next in pages.indices) {
+
+            pageIndex = next
+            selectedIndex = -1
+
+            updateEditor()
+
+        } else {
+            toast("আর পৃষ্ঠা নেই")
+        }
+    }
+
+    // ---------------- NEW PAGE ----------------
+
+    private fun addNewPage() {
+
+        pages.add(mutableListOf())
+
+        pageIndex = pages.lastIndex
+        selectedIndex = -1
+
+        updateEditor()
+
+        toast("নতুন পৃষ্ঠা তৈরি হয়েছে")
+    }
+
+    // ---------------- NEW NEWSPAPER ----------------
+
+    private fun newNewspaper() {
 
         AlertDialog.Builder(this)
-            .setTitle("নতুন পত্রিকা তৈরি করুন")
+            .setTitle("নতুন পত্রিকা তৈরি")
             .setMessage(
-                "পুরোনো পত্রিকার সমস্ত খবর, ছবি ও পৃষ্ঠা মুছে নতুন পত্রিকা শুরু করবেন?\n\nবর্তমান পত্রিকার PDF আগে তৈরি করে রাখুন।"
+                "বর্তমান পত্রিকার সব খবর ও পৃষ্ঠা বন্ধ করে নতুন পত্রিকা শুরু করবেন?"
             )
-            .setPositiveButton("হ্যাঁ, নতুন পত্রিকা") { _, _ ->
+            .setPositiveButton("হ্যাঁ, নতুন তৈরি করুন") { _, _ ->
 
                 pages.clear()
                 pages.add(mutableListOf())
@@ -317,187 +340,70 @@ class MainActivity : Activity() {
                 pageIndex = 0
                 selectedIndex = -1
 
-                // Keep newspaper branding and paper size.
-                // Reset article content only.
+                paperName = "ES NEWS"
+                paperTagline = "সংবাদ • মতামত • স্থানীয় খবর"
+                paperDate = dateNow()
 
+                bitmapCache.values.forEach {
+                    if (!it.isRecycled) it.recycle()
+                }
                 bitmapCache.clear()
-
-                paperDate = today()
 
                 updateEditor()
 
-                toast("নতুন পত্রিকা তৈরি হয়েছে!")
-
+                toast("নতুন পত্রিকা তৈরি হয়েছে")
             }
             .setNegativeButton("না", null)
             .show()
     }
 
-    // ---------------- NEWSPAPER NAME DESIGN ----------------
+    // ---------------- PAPER NAME ----------------
 
-    private fun newspaperDesign() {
+    private fun changePaperName() {
 
-        val layout = LinearLayout(this).apply {
+        val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(20, 10, 20, 5)
         }
 
-        fun addLabel(text: String) {
-            layout.addView(
-                TextView(this).apply {
-                    this.text = text
-                    textSize = 14f
-                    setTextColor(navy)
-                    setPadding(0, 10, 0, 4)
-                }
-            )
+        val nameInput = EditText(this).apply {
+            hint = "পত্রিকার নাম"
+            setText(paperName)
+            textSize = 17f
         }
 
-        fun addInput(
-            value: String,
-            hintText: String
-        ): EditText {
-
-            val edit = EditText(this).apply {
-                setText(value)
-                hint = hintText
-                textSize = 16f
-                setTextColor(Color.BLACK)
-                setPadding(10, 8, 10, 8)
-            }
-
-            layout.addView(edit)
-            return edit
+        val taglineInput = EditText(this).apply {
+            hint = "পত্রিকার নিচের লাইন"
+            setText(paperTagline)
+            textSize = 15f
         }
 
-        addLabel("পত্রিকার নাম")
+        val dateInput = EditText(this).apply {
+            hint = "প্রকাশের তারিখ"
+            setText(paperDate)
+            textSize = 15f
+        }
 
-        val nameInput = addInput(
-            paperName,
-            "নিজের পত্রিকার নাম লিখুন"
-        )
-
-        addLabel("পত্রিকার সাবটাইটেল")
-
-        val subtitleInput = addInput(
-            paperSubtitle,
-            "যেমন: সংবাদ • মতামত • স্থানীয় খবর"
-        )
-
-        addLabel("প্রকাশের তারিখ")
-
-        val dateInput = addInput(
-            paperDate,
-            "তারিখ"
-        )
-
-        addLabel("নামের ফন্ট সাইজ")
-
-        val sizeInput = addInput(
-            mastheadFontSize.toInt().toString(),
-            "যেমন 48"
-        )
-
-        addLabel("নামের রং")
-
-        val colors = arrayOf(
-            "Navy Blue",
-            "Black",
-            "Red",
-            "Green",
-            "Blue",
-            "Orange",
-            "Purple"
-        )
-
-        val colorValues = intArrayOf(
-            Color.rgb(25, 43, 67),
-            Color.BLACK,
-            Color.RED,
-            Color.rgb(0, 120, 60),
-            Color.BLUE,
-            Color.rgb(230, 100, 0),
-            Color.rgb(110, 40, 150)
-        )
-
-        val colorSpinner = Spinner(this)
-
-        colorSpinner.adapter = ArrayAdapter(
-            this,
-            android.R.layout.simple_spinner_dropdown_item,
-            colors
-        )
-
-        val currentColorIndex =
-            colorValues.indexOf(mastheadColor)
-
-        colorSpinner.setSelection(
-            currentColorIndex.coerceAtLeast(0)
-        )
-
-        layout.addView(colorSpinner)
-
-        addLabel("নামের অবস্থান")
-
-        val alignments = arrayOf(
-            "CENTER",
-            "LEFT",
-            "RIGHT"
-        )
-
-        val alignSpinner = Spinner(this)
-
-        alignSpinner.adapter = ArrayAdapter(
-            this,
-            android.R.layout.simple_spinner_dropdown_item,
-            arrayOf(
-                "মাঝখানে",
-                "বাঁদিকে",
-                "ডানদিকে"
-            )
-        )
-
-        alignSpinner.setSelection(
-            alignments.indexOf(mastheadAlignment)
-                .coerceAtLeast(0)
-        )
-
-        layout.addView(alignSpinner)
+        container.addView(nameInput)
+        container.addView(taglineInput)
+        container.addView(dateInput)
 
         AlertDialog.Builder(this)
-            .setTitle("Newspaper Name & Design")
-            .setView(
-                ScrollView(this).apply {
-                    addView(layout)
-                }
-            )
-            .setPositiveButton("ডিজাইন সংরক্ষণ") { _, _ ->
+            .setTitle("পত্রিকার ডিজাইন ও নাম")
+            .setView(container)
+            .setPositiveButton("সংরক্ষণ") { _, _ ->
 
-                paperName =
-                    nameInput.text.toString()
-                        .ifBlank { "ES NEWS" }
+                paperName = nameInput.text.toString()
+                    .ifBlank { "ES NEWS" }
 
-                paperSubtitle =
-                    subtitleInput.text.toString()
+                paperTagline = taglineInput.text.toString()
 
-                paperDate =
-                    dateInput.text.toString()
-                        .ifBlank { today() }
-
-                mastheadFontSize =
-                    (sizeInput.text.toString()
-                        .toFloatOrNull() ?: 48f)
-                        .coerceIn(15f, 100f)
-
-                mastheadColor =
-                    colorValues[colorSpinner.selectedItemPosition]
-
-                mastheadAlignment =
-                    alignments[alignSpinner.selectedItemPosition]
+                paperDate = dateInput.text.toString()
+                    .ifBlank { dateNow() }
 
                 updateEditor()
 
-                toast("পত্রিকার ডিজাইন সংরক্ষণ হয়েছে")
+                toast("পত্রিকার নাম পরিবর্তন হয়েছে")
             }
             .setNegativeButton("বাতিল", null)
             .show()
@@ -535,20 +441,15 @@ class MainActivity : Activity() {
 
     private fun addText(type: String) {
 
-        val isHeadline = type == "headline"
-        val isCustom = type == "custom"
-
         val input = EditText(this).apply {
 
-            hint = when (type) {
-                "headline" -> "সংবাদের শিরোনাম লিখুন"
-                "custom" -> "নিজের পছন্দমতো যেকোনো লেখা লিখুন"
-                else -> "সংবাদের বিস্তারিত লিখুন"
-            }
+            hint = if (type == "headline")
+                "সংবাদের শিরোনাম লিখুন"
+            else
+                "সংবাদের বিস্তারিত লিখুন"
 
             textSize = 17f
             minLines = if (type == "body") 5 else 2
-
             gravity = Gravity.TOP
 
             inputType =
@@ -557,10 +458,7 @@ class MainActivity : Activity() {
         }
 
         AlertDialog.Builder(this)
-            .setTitle(
-                if (isCustom) "নিজের ডিজাইন লেখা"
-                else "নতুন খবর তৈরি করুন"
-            )
+            .setTitle("নতুন খবর তৈরি করুন")
             .setView(input)
             .setPositiveButton("যোগ করুন") { _, _ ->
 
@@ -568,43 +466,30 @@ class MainActivity : Activity() {
 
                 if (text.isNotBlank()) {
 
+                    val isHeadline = type == "headline"
+
                     val element = NewsElement(
                         type = type,
                         text = text,
                         x = 55f,
                         y = 220f,
                         w = paperWidth - 110f,
-                        h = when {
-                            isHeadline -> 180f
-                            isCustom -> 120f
-                            else -> 360f
-                        },
-                        fontSize = when {
-                            isHeadline -> 38f
-                            isCustom -> 34f
-                            else -> 23f
-                        },
-                        textColor = if (isCustom) blue else Color.BLACK,
-                        bold = isHeadline || isCustom
+                        h = if (isHeadline) 180f else 360f,
+                        fontSize = if (isHeadline) 38f else 23f
                     )
 
                     currentPage().add(element)
 
-                    selectedIndex =
-                        currentPage().lastIndex
+                    selectedIndex = currentPage().lastIndex
 
                     updateEditor()
-
-                    if (isCustom) {
-                        toast("ডিজাইন লেখা যোগ হয়েছে। টেনে যেখানে খুশি রাখুন।")
-                    }
                 }
             }
             .setNegativeButton("বাতিল", null)
             .show()
     }
 
-    // ---------------- EDIT SELECTED ----------------
+    // ---------------- EDIT TEXT ----------------
 
     private fun editSelected() {
 
@@ -616,156 +501,27 @@ class MainActivity : Activity() {
         val element = currentPage()[selectedIndex]
 
         if (element.type == "image") {
-            AlertDialog.Builder(this)
-                .setTitle("ছবি সম্পাদনা")
-                .setItems(
-                    arrayOf(
-                        "ছবি পরিবর্তন",
-                        "বাতিল"
-                    )
-                ) { _, which ->
-                    if (which == 0) {
-                        openGallery(false)
-                    }
-                }
-                .show()
+            toast("ছবি পরিবর্তন করতে নতুন ছবি বসান")
             return
-        }
-
-        val layout = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(20, 10, 20, 5)
         }
 
         val input = EditText(this).apply {
             setText(element.text)
             textSize = 17f
-            minLines = 4
+            minLines = 5
             gravity = Gravity.TOP
+
             inputType =
                 android.text.InputType.TYPE_CLASS_TEXT or
                 android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
         }
 
-        layout.addView(input)
-
-        layout.addView(
-            TextView(this).apply {
-                text = "ফন্ট সাইজ"
-                setTextColor(navy)
-                setPadding(0, 12, 0, 4)
-            }
-        )
-
-        val fontInput = EditText(this).apply {
-            setText(element.fontSize.toInt().toString())
-            inputType =
-                android.text.InputType.TYPE_CLASS_NUMBER
-        }
-
-        layout.addView(fontInput)
-
-        val boldCheck = CheckBox(this).apply {
-            text = "Bold লেখা"
-            isChecked = element.bold
-            setTextColor(navy)
-        }
-
-        layout.addView(boldCheck)
-
-        layout.addView(
-            TextView(this).apply {
-                text = "লেখার রং"
-                setTextColor(navy)
-                setPadding(0, 10, 0, 4)
-            }
-        )
-
-        val colorNames = arrayOf(
-            "Black",
-            "Blue",
-            "Red",
-            "Green",
-            "Orange",
-            "Purple"
-        )
-
-        val colorValues = intArrayOf(
-            Color.BLACK,
-            Color.BLUE,
-            Color.RED,
-            Color.rgb(0, 120, 60),
-            Color.rgb(230, 100, 0),
-            Color.rgb(110, 40, 150)
-        )
-
-        val colorSpinner = Spinner(this)
-
-        colorSpinner.adapter = ArrayAdapter(
-            this,
-            android.R.layout.simple_spinner_dropdown_item,
-            colorNames
-        )
-
-        colorSpinner.setSelection(
-            colorValues.indexOf(element.textColor)
-                .coerceAtLeast(0)
-        )
-
-        layout.addView(colorSpinner)
-
-        val alignSpinner = Spinner(this)
-
-        alignSpinner.adapter = ArrayAdapter(
-            this,
-            android.R.layout.simple_spinner_dropdown_item,
-            arrayOf("বাঁদিকে", "মাঝখানে", "ডানদিকে")
-        )
-
-        val alignments = arrayOf(
-            "LEFT",
-            "CENTER",
-            "RIGHT"
-        )
-
-        alignSpinner.setSelection(
-            alignments.indexOf(element.alignment)
-                .coerceAtLeast(0)
-        )
-
-        layout.addView(
-            TextView(this).apply {
-                text = "লেখার অবস্থান"
-                setTextColor(navy)
-                setPadding(0, 10, 0, 4)
-            }
-        )
-
-        layout.addView(alignSpinner)
-
         AlertDialog.Builder(this)
-            .setTitle("লেখা ও ডিজাইন সম্পাদনা")
-            .setView(
-                ScrollView(this).apply {
-                    addView(layout)
-                }
-            )
+            .setTitle("খবর সম্পাদনা")
+            .setView(input)
             .setPositiveButton("সংরক্ষণ") { _, _ ->
 
                 element.text = input.text.toString()
-
-                element.fontSize =
-                    (fontInput.text.toString()
-                        .toFloatOrNull() ?: 24f)
-                        .coerceIn(8f, 100f)
-
-                element.bold = boldCheck.isChecked
-
-                element.textColor =
-                    colorValues[colorSpinner.selectedItemPosition]
-
-                element.alignment =
-                    alignments[alignSpinner.selectedItemPosition]
 
                 updateEditor()
             }
@@ -773,11 +529,19 @@ class MainActivity : Activity() {
             .show()
     }
 
+    // ---------------- DELETE ----------------
+
     private fun deleteSelected() {
 
         if (selectedIndex in currentPage().indices) {
 
-            currentPage().removeAt(selectedIndex)
+            val element = currentPage().removeAt(selectedIndex)
+
+            if (element.type == "image") {
+                bitmapCache.remove(element.imageUri)?.let {
+                    if (!it.isRecycled) it.recycle()
+                }
+            }
 
             selectedIndex = -1
 
@@ -788,12 +552,9 @@ class MainActivity : Activity() {
         }
     }
 
-    // ---------------- IMAGE GALLERY ----------------
+    // ---------------- GALLERY ----------------
 
-    private fun openGallery(isLogo: Boolean) {
-
-        galleryTarget =
-            if (isLogo) "logo" else "article"
+    private fun openGallery() {
 
         val intent = Intent(
             Intent.ACTION_OPEN_DOCUMENT
@@ -835,35 +596,20 @@ class MainActivity : Activity() {
                     )
                 }
 
-                if (galleryTarget == "logo") {
+                val element = NewsElement(
+                    type = "image",
+                    imageUri = uri.toString(),
+                    x = 55f,
+                    y = 220f,
+                    w = paperWidth * 0.55f,
+                    h = paperHeight * 0.20f
+                )
 
-                    mastheadLogoUri = uri.toString()
+                currentPage().add(element)
 
-                    bitmapCache.remove(mastheadLogoUri)
+                selectedIndex = currentPage().lastIndex
 
-                    updateEditor()
-
-                    toast("পত্রিকার লোগো যোগ হয়েছে")
-
-                } else {
-
-                    val element = NewsElement(
-                        type = "image",
-                        imageUri = uri.toString(),
-                        x = 55f,
-                        y = 220f,
-                        w = paperWidth * 0.55f,
-                        h = paperHeight * 0.20f
-                    )
-
-                    currentPage().add(element)
-
-                    selectedIndex =
-                        currentPage().lastIndex
-
-                    updateEditor()
-
-                }
+                updateEditor()
 
             } catch (e: Exception) {
                 toast("ছবি যোগ করা যায়নি: ${e.message}")
@@ -877,10 +623,9 @@ class MainActivity : Activity() {
         }
     }
 
-    // ---------------- NEWSPAPER DESIGN VIEW ----------------
+    // ---------------- NEWSPAPER CANVAS ----------------
 
-    inner class NewspaperView :
-        View(this@MainActivity) {
+    inner class NewspaperView : View(this@MainActivity) {
 
         private var scaleFactor = 1f
         private var offsetX = 0f
@@ -922,6 +667,7 @@ class MainActivity : Activity() {
         }
 
         override fun onDraw(canvas: Canvas) {
+
             super.onDraw(canvas)
 
             canvas.drawColor(Color.rgb(220, 225, 232))
@@ -976,17 +722,13 @@ class MainActivity : Activity() {
             number: Int
         ) {
 
-            val isA4 = paperType == "A4"
+            val a4 = paperType == "A4"
 
             val titlePaint = Paint(
                 Paint.ANTI_ALIAS_FLAG
             ).apply {
-                color = mastheadColor
-                textSize = if (isA4) {
-                    mastheadFontSize * 0.56f
-                } else {
-                    mastheadFontSize
-                }
+                color = navy
+                textSize = if (a4) 27f else 48f
                 textAlign = Paint.Align.CENTER
                 typeface = Typeface.DEFAULT_BOLD
             }
@@ -995,91 +737,43 @@ class MainActivity : Activity() {
                 Paint.ANTI_ALIAS_FLAG
             ).apply {
                 color = Color.DKGRAY
-                textSize = if (isA4) 10f else 20f
+                textSize = if (a4) 10f else 20f
                 textAlign = Paint.Align.CENTER
             }
 
-            val titleY =
-                if (isA4) 50f else 75f
-
-            val dateY =
-                if (isA4) 70f else 110f
-
-            val subtitleY =
-                if (isA4) 88f else 145f
-
-            val lineY =
-                if (isA4) 105f else 175f
-
-            val x = when (mastheadAlignment) {
-                "LEFT" -> 220f
-                "RIGHT" -> paperWidth - 220f
-                else -> paperWidth / 2f
-            }
-
-            // Newspaper logo
-
-            if (mastheadLogoUri.isNotBlank()) {
-
-                val logo = getBitmap(mastheadLogoUri)
-
-                if (logo != null) {
-
-                    val logoSize =
-                        if (isA4) 65f else 120f
-
-                    val logoRect = RectF(
-                        45f,
-                        25f,
-                        45f + logoSize,
-                        25f + logoSize
-                    )
-
-                    canvas.drawBitmap(
-                        logo,
-                        null,
-                        logoRect,
-                        Paint(
-                            Paint.ANTI_ALIAS_FLAG or
-                                Paint.FILTER_BITMAP_FLAG
-                        )
-                    )
-                }
+            val linePaint = Paint(
+                Paint.ANTI_ALIAS_FLAG
+            ).apply {
+                color = blue
+                strokeWidth = if (a4) 3f else 7f
             }
 
             canvas.drawText(
                 paperName,
-                x,
-                titleY,
+                paperWidth / 2f,
+                if (a4) 50f else 75f,
                 titlePaint
             )
 
             canvas.drawText(
                 paperDate,
                 paperWidth / 2f,
-                dateY,
+                if (a4) 70f else 110f,
                 metaPaint
             )
 
             canvas.drawText(
-                paperSubtitle,
+                paperTagline,
                 paperWidth / 2f,
-                subtitleY,
+                if (a4) 88f else 145f,
                 metaPaint
             )
 
-            val linePaint = Paint(
-                Paint.ANTI_ALIAS_FLAG
-            ).apply {
-                color = blue
-                strokeWidth = if (isA4) 3f else 7f
-            }
-
             canvas.drawLine(
                 45f,
-                lineY,
+                if (a4) 105f else 175f,
                 paperWidth - 45f,
-                lineY,
+                if (a4) 105f else 175f,
                 linePaint
             )
 
@@ -1125,7 +819,7 @@ class MainActivity : Activity() {
                         rect,
                         Paint(
                             Paint.ANTI_ALIAS_FLAG or
-                                Paint.FILTER_BITMAP_FLAG
+                            Paint.FILTER_BITMAP_FLAG
                         )
                     )
 
@@ -1138,29 +832,24 @@ class MainActivity : Activity() {
                 val textPaint = TextPaint(
                     Paint.ANTI_ALIAS_FLAG
                 ).apply {
-                    color = element.textColor
+                    color = Color.BLACK
                     textSize = element.fontSize
 
-                    typeface = if (element.bold) {
-                        Typeface.DEFAULT_BOLD
-                    } else {
-                        Typeface.DEFAULT
-                    }
+                    typeface =
+                        if (element.type == "headline") {
+                            Typeface.create(
+                                "sans-serif",
+                                Typeface.BOLD
+                            )
+                        } else {
+                            Typeface.create(
+                                "sans-serif",
+                                Typeface.NORMAL
+                            )
+                        }
                 }
 
-                val alignment = when (element.alignment) {
-                    "CENTER" ->
-                        Layout.Alignment.ALIGN_CENTER
-
-                    "RIGHT" ->
-                        Layout.Alignment.ALIGN_OPPOSITE
-
-                    else ->
-                        Layout.Alignment.ALIGN_NORMAL
-                }
-
-                val safeText =
-                    element.text.ifBlank { " " }
+                val safeText = element.text.ifBlank { " " }
 
                 val layout = StaticLayout.Builder.obtain(
                     safeText,
@@ -1169,7 +858,9 @@ class MainActivity : Activity() {
                     textPaint,
                     max(1, element.w.toInt())
                 )
-                    .setAlignment(alignment)
+                    .setAlignment(
+                        Layout.Alignment.ALIGN_NORMAL
+                    )
                     .setIncludePad(true)
                     .setLineSpacing(2f, 1f)
                     .build()
@@ -1188,6 +879,8 @@ class MainActivity : Activity() {
                 canvas.restore()
             }
         }
+
+        // ---------------- SELECTION ----------------
 
         private fun drawSelection(
             canvas: Canvas,
@@ -1211,7 +904,7 @@ class MainActivity : Activity() {
             )
         }
 
-        // ---------------- IMAGE CACHE ----------------
+        // ---------------- BITMAP ----------------
 
         private fun getBitmap(uri: String): Bitmap? {
 
@@ -1319,7 +1012,7 @@ class MainActivity : Activity() {
                             element.y = (
                                 element.y + dy
                             ).coerceIn(
-                                175f,
+                                if (paperType == "A4") 110f else 175f,
                                 paperHeight - 40f
                             )
                         }
@@ -1384,6 +1077,8 @@ class MainActivity : Activity() {
         startActivityForResult(intent, 101)
     }
 
+    // ---------------- SAVE PDF ----------------
+
     private fun savePdf(uri: Uri) {
 
         val pdf = PdfDocument()
@@ -1409,7 +1104,6 @@ class MainActivity : Activity() {
                 )
 
                 elements.forEach { element ->
-
                     drawPdfElement(
                         page.canvas,
                         element
@@ -1446,17 +1140,13 @@ class MainActivity : Activity() {
         number: Int
     ) {
 
-        val isA4 = paperType == "A4"
+        val a4 = paperType == "A4"
 
         val titlePaint = Paint(
             Paint.ANTI_ALIAS_FLAG
         ).apply {
-            color = mastheadColor
-            textSize = if (isA4) {
-                mastheadFontSize * 0.56f
-            } else {
-                mastheadFontSize
-            }
+            color = navy
+            textSize = if (a4) 27f else 48f
             textAlign = Paint.Align.CENTER
             typeface = Typeface.DEFAULT_BOLD
         }
@@ -1465,66 +1155,28 @@ class MainActivity : Activity() {
             Paint.ANTI_ALIAS_FLAG
         ).apply {
             color = Color.DKGRAY
-            textSize = if (isA4) 10f else 20f
+            textSize = if (a4) 10f else 20f
             textAlign = Paint.Align.CENTER
-        }
-
-        val titleY = if (isA4) 50f else 75f
-        val dateY = if (isA4) 70f else 110f
-        val subtitleY = if (isA4) 88f else 145f
-        val lineY = if (isA4) 105f else 175f
-
-        val x = when (mastheadAlignment) {
-            "LEFT" -> 220f
-            "RIGHT" -> paperWidth - 220f
-            else -> paperWidth / 2f
-        }
-
-        // Logo
-
-        if (mastheadLogoUri.isNotBlank()) {
-
-            val bitmap = getPdfBitmap(mastheadLogoUri)
-
-            if (bitmap != null) {
-
-                val logoSize = if (isA4) 65f else 120f
-
-                canvas.drawBitmap(
-                    bitmap,
-                    null,
-                    RectF(
-                        45f,
-                        25f,
-                        45f + logoSize,
-                        25f + logoSize
-                    ),
-                    Paint(
-                        Paint.ANTI_ALIAS_FLAG or
-                            Paint.FILTER_BITMAP_FLAG
-                    )
-                )
-            }
         }
 
         canvas.drawText(
             paperName,
-            x,
-            titleY,
+            paperWidth / 2f,
+            if (a4) 50f else 75f,
             titlePaint
         )
 
         canvas.drawText(
             paperDate,
             paperWidth / 2f,
-            dateY,
+            if (a4) 70f else 110f,
             metaPaint
         )
 
         canvas.drawText(
-            paperSubtitle,
+            paperTagline,
             paperWidth / 2f,
-            subtitleY,
+            if (a4) 88f else 145f,
             metaPaint
         )
 
@@ -1532,14 +1184,14 @@ class MainActivity : Activity() {
             Paint.ANTI_ALIAS_FLAG
         ).apply {
             color = blue
-            strokeWidth = if (isA4) 3f else 7f
+            strokeWidth = if (a4) 3f else 7f
         }
 
         canvas.drawLine(
             45f,
-            lineY,
+            if (a4) 105f else 175f,
             paperWidth - 45f,
-            lineY,
+            if (a4) 105f else 175f,
             linePaint
         )
 
@@ -1585,9 +1237,11 @@ class MainActivity : Activity() {
                     rect,
                     Paint(
                         Paint.ANTI_ALIAS_FLAG or
-                            Paint.FILTER_BITMAP_FLAG
+                        Paint.FILTER_BITMAP_FLAG
                     )
                 )
+
+                bitmap.recycle()
             }
 
         } else {
@@ -1595,25 +1249,21 @@ class MainActivity : Activity() {
             val paint = TextPaint(
                 Paint.ANTI_ALIAS_FLAG
             ).apply {
-                color = element.textColor
+                color = Color.BLACK
                 textSize = element.fontSize
 
-                typeface = if (element.bold) {
-                    Typeface.DEFAULT_BOLD
-                } else {
-                    Typeface.DEFAULT
-                }
-            }
-
-            val alignment = when (element.alignment) {
-                "CENTER" ->
-                    Layout.Alignment.ALIGN_CENTER
-
-                "RIGHT" ->
-                    Layout.Alignment.ALIGN_OPPOSITE
-
-                else ->
-                    Layout.Alignment.ALIGN_NORMAL
+                typeface =
+                    if (element.type == "headline") {
+                        Typeface.create(
+                            "sans-serif",
+                            Typeface.BOLD
+                        )
+                    } else {
+                        Typeface.create(
+                            "sans-serif",
+                            Typeface.NORMAL
+                        )
+                    }
             }
 
             val text = element.text.ifBlank { " " }
@@ -1625,49 +1275,51 @@ class MainActivity : Activity() {
                 paint,
                 max(1, element.w.toInt())
             )
-                .setAlignment(alignment)
+                .setAlignment(
+                    Layout.Alignment.ALIGN_NORMAL
+                )
                 .setIncludePad(true)
                 .setLineSpacing(2f, 1f)
                 .build()
 
             canvas.save()
+
             canvas.clipRect(rect)
-            canvas.translate(element.x, element.y)
+
+            canvas.translate(
+                element.x,
+                element.y
+            )
+
             layout.draw(canvas)
+
             canvas.restore()
         }
     }
+
+    // ---------------- PDF BITMAP ----------------
 
     private fun getPdfBitmap(uri: String): Bitmap? {
 
         if (uri.isBlank()) return null
 
-        if (bitmapCache.containsKey(uri)) {
-            return bitmapCache[uri]
-        }
-
         return try {
 
-            val bitmap = contentResolver
+            contentResolver
                 .openInputStream(Uri.parse(uri))
                 .use { stream ->
                     BitmapFactory.decodeStream(stream)
                 }
-
-            if (bitmap != null) {
-                bitmapCache[uri] = bitmap
-            }
-
-            bitmap
 
         } catch (_: Exception) {
             null
         }
     }
 
-    // ---------------- MESSAGE ----------------
+    // ---------------- TOAST ----------------
 
     private fun toast(message: String) {
+
         Toast.makeText(
             this,
             message,
