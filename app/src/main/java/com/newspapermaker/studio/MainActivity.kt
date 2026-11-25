@@ -6,367 +6,377 @@ import android.os.Bundle
 import android.content.Intent
 import android.graphics.*
 import android.graphics.pdf.PdfDocument
-import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint
+import android.view.MotionEvent
+import android.view.View
 import android.view.Gravity
 import android.view.ViewGroup
 import android.widget.*
-import java.util.Date
-import java.text.SimpleDateFormat
-import java.util.Locale
+import android.app.AlertDialog
+import android.graphics.Typeface
 import kotlin.math.min
+import kotlin.math.max
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
-data class NewsArticle(
-    var title: String = "",
-    var body: String = "",
-    var image: String = ""
-)
-
-data class NewsPage(
-    val articles: MutableList<NewsArticle> =
-        mutableListOf(NewsArticle())
+data class NewsElement(
+    var type: String = "body",
+    var text: String = "",
+    var imageUri: String = "",
+    var x: Float = 55f,
+    var y: Float = 220f,
+    var w: Float = 500f,
+    var h: Float = 180f,
+    var fontSize: Float = 24f
 )
 
 class MainActivity : Activity() {
 
-    private val pages = mutableListOf(NewsPage())
+    private val pages =
+        mutableListOf<MutableList<NewsElement>>(
+            mutableListOf()
+        )
 
     private var pageIndex = 0
-    private var articleIndex = 0
-    private var selectedImage = ""
 
-    private lateinit var root: LinearLayout
-    private lateinit var paperName: EditText
-    private lateinit var paperDate: EditText
-    private lateinit var titleInput: EditText
-    private lateinit var bodyInput: EditText
-    private lateinit var imagePreview: ImageView
-    private lateinit var pageInfo: TextView
-    private lateinit var articleInfo: TextView
+    private var paperWidth = 1224f
+    private var paperHeight = 1584f
+    private var paperType = "NEWSPAPER"
+
+    private var selectedIndex = -1
+
+    private lateinit var editor: NewspaperView
+    private lateinit var pageLabel: TextView
+    private lateinit var sizeLabel: TextView
 
     private val navy = Color.rgb(25, 43, 67)
     private val blue = Color.rgb(25, 105, 170)
 
+    private val bitmapCache =
+        mutableMapOf<String, Bitmap>()
+
+    private fun currentPage() = pages[pageIndex]
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        createEditor()
-        loadArticle()
+        createInterface()
     }
 
-    private fun createEditor() {
+    private fun createInterface() {
 
-        val scroll = ScrollView(this)
-
-        root = LinearLayout(this).apply {
+        val main = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(16, 16, 16, 24)
-            setBackgroundColor(
-                Color.rgb(243, 246, 250)
-            )
+            setBackgroundColor(Color.rgb(235, 239, 244))
         }
 
-        scroll.addView(root)
-        setContentView(scroll)
-
         val header = TextView(this).apply {
-            text = "NEWSPAPER MAKER STUDIO\nআধুনিক বাংলা সংবাদপত্র"
+            text = "NEWSPAPER MAKER STUDIO"
             textSize = 20f
             gravity = Gravity.CENTER
             setTextColor(Color.WHITE)
-            setPadding(12, 25, 12, 25)
-            background = rounded(navy)
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(8, 17, 8, 17)
+            setBackgroundColor(navy)
         }
 
-        root.addView(header)
+        main.addView(header)
 
-        label("পত্রিকার নাম")
+        val toolbarScroll = HorizontalScrollView(this)
 
-        paperName = input("পত্রিকার নাম লিখুন")
-        paperName.setText("ES NEWS")
-
-        label("প্রকাশের তারিখ")
-
-        paperDate = input("তারিখ")
-        paperDate.setText(
-            SimpleDateFormat(
-                "dd-MM-yyyy",
-                Locale.getDefault()
-            ).format(Date())
-        )
-
-        label("পৃষ্ঠা ও খবর")
-
-        pageInfo = info()
-        articleInfo = info()
-
-        root.addView(pageInfo)
-        root.addView(articleInfo)
-
-        label("সংবাদের শিরোনাম")
-
-        titleInput = input(
-            "বড় করে সংবাদের শিরোনাম লিখুন"
-        )
-
-        label("সংবাদের বিস্তারিত")
-
-        bodyInput = input(
-            "সম্পূর্ণ সংবাদ এখানে লিখুন",
-            true
-        )
-
-        label("সংবাদের ছবি")
-
-        imagePreview = ImageView(this).apply {
-            scaleType = ImageView.ScaleType.CENTER_CROP
-            background = rounded(Color.LTGRAY)
-            contentDescription = "সংবাদের ছবি"
+        val toolbar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(5, 5, 5, 5)
         }
 
-        root.addView(
-            imagePreview,
-            LinearLayout.LayoutParams(-1, 190)
-        )
+        toolbarScroll.addView(toolbar)
+        main.addView(toolbarScroll)
 
-        button("📷 গ্যালারি থেকে ছবি নিন") {
+        tool(toolbar, "＋ শিরোনাম") {
+            addText("headline")
+        }
+
+        tool(toolbar, "＋ বিস্তারিত") {
+            addText("body")
+        }
+
+        tool(toolbar, "📷 ছবি") {
             openGallery()
         }
 
-        button("ছবি সরিয়ে দিন") {
-            selectedImage = ""
-            imagePreview.setImageDrawable(null)
-            saveArticle()
+        tool(toolbar, "✎ সম্পাদনা") {
+            editSelected()
         }
 
-        label("খবর পরিচালনা")
-
-        button("＋ একই পৃষ্ঠায় নতুন খবর") {
-            saveArticle()
-
-            currentPage().articles.add(
-                NewsArticle()
-            )
-
-            articleIndex =
-                currentPage().articles.lastIndex
-
-            loadArticle()
+        tool(toolbar, "মুছুন") {
+            deleteSelected()
         }
 
-        button("← আগের খবর") {
-            saveArticle()
+        val secondScroll = HorizontalScrollView(this)
 
-            if (articleIndex > 0) {
-                articleIndex--
-                loadArticle()
-            } else {
-                toast("এটাই প্রথম খবর")
-            }
+        val secondToolbar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(5, 3, 5, 3)
         }
 
-        button("পরের খবর →") {
-            saveArticle()
+        secondScroll.addView(secondToolbar)
+        main.addView(secondScroll)
 
-            if (articleIndex <
-                currentPage().articles.lastIndex
-            ) {
-                articleIndex++
-                loadArticle()
-            } else {
-                toast("নতুন খবর যোগ করুন")
-            }
+        tool(secondToolbar, "← আগের পৃষ্ঠা") {
+            changePage(-1)
         }
 
-        button("বর্তমান খবর মুছুন") {
-            val list = currentPage().articles
-
-            if (list.size > 1) {
-                list.removeAt(articleIndex)
-
-                articleIndex =
-                    articleIndex.coerceAtMost(
-                        list.lastIndex
-                    )
-
-                loadArticle()
-            } else {
-                toast("অন্তত একটি খবর রাখতে হবে")
-            }
-        }
-
-        label("পৃষ্ঠা পরিচালনা")
-
-        button("＋ নতুন পৃষ্ঠা") {
-            saveArticle()
-
-            pages.add(NewsPage())
-
+        tool(secondToolbar, "＋ নতুন পৃষ্ঠা") {
+            savePageState()
+            pages.add(mutableListOf())
             pageIndex = pages.lastIndex
-            articleIndex = 0
-
-            loadArticle()
+            selectedIndex = -1
+            updateEditor()
         }
 
-        button("← আগের পৃষ্ঠা") {
-            saveArticle()
-
-            if (pageIndex > 0) {
-                pageIndex--
-                articleIndex = 0
-                loadArticle()
-            } else {
-                toast("এটাই প্রথম পৃষ্ঠা")
-            }
+        tool(secondToolbar, "পরের পৃষ্ঠা →") {
+            changePage(1)
         }
 
-        button("পরের পৃষ্ঠা →") {
-            saveArticle()
-
-            if (pageIndex < pages.lastIndex) {
-                pageIndex++
-                articleIndex = 0
-                loadArticle()
-            } else {
-                toast("নতুন পৃষ্ঠা তৈরি করুন")
-            }
+        tool(secondToolbar, "Paper Size") {
+            changePaperSize()
         }
 
-        label("Newspaper PDF")
-
-        button("📄 সম্পূর্ণ পত্রিকা PDF তৈরি করুন") {
-            saveArticle()
-            createPdf()
+        tool(secondToolbar, "PDF Export") {
+            exportPdfDialog()
         }
-    }
 
-    private fun rounded(color: Int): GradientDrawable {
-        return GradientDrawable().apply {
-            setColor(color)
-            cornerRadius = 16f
+        val infoBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(5, 5, 5, 5)
+            setBackgroundColor(Color.WHITE)
         }
-    }
 
-    private fun label(text: String) {
-        root.addView(
-            TextView(this).apply {
-                this.text = text
-                textSize = 16f
-                setTextColor(navy)
-                typeface = Typeface.DEFAULT_BOLD
-                setPadding(4, 18, 4, 7)
-            }
-        )
-    }
+        pageLabel = TextView(this).apply {
+            textSize = 13f
+            setTextColor(navy)
+        }
 
-    private fun info(): TextView {
-        return TextView(this).apply {
-            textSize = 14f
+        sizeLabel = TextView(this).apply {
+            textSize = 13f
             setTextColor(blue)
-            setPadding(12, 10, 12, 10)
-            background = rounded(Color.WHITE)
-        }
-    }
-
-    private fun input(
-        hintText: String,
-        multiline: Boolean = false
-    ): EditText {
-
-        val edit = EditText(this).apply {
-            hint = hintText
-            textSize = 15f
-            setTextColor(Color.BLACK)
-            setPadding(12, 12, 12, 12)
-            background = rounded(Color.WHITE)
-
-            if (multiline) {
-                minLines = 7
-                gravity = Gravity.TOP
-
-                inputType =
-                    android.text.InputType.TYPE_CLASS_TEXT or
-                    android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
-            }
         }
 
-        root.addView(edit)
-        return edit
+        infoBar.addView(
+            pageLabel,
+            LinearLayout.LayoutParams(0, -2, 1f)
+        )
+
+        infoBar.addView(
+            sizeLabel,
+            LinearLayout.LayoutParams(0, -2, 1f)
+        )
+
+        main.addView(infoBar)
+
+        editor = NewspaperView()
+
+        main.addView(
+            editor,
+            LinearLayout.LayoutParams(
+                -1, 0, 1f
+            )
+        )
+
+        val help = TextView(this).apply {
+            text = "খবর নির্বাচন করতে টাচ করুন • সরাতে টেনে ধরুন • ছোট-বড় করতে নিচের ডান কোণ টানুন"
+            textSize = 12f
+            gravity = Gravity.CENTER
+            setTextColor(Color.DKGRAY)
+            setPadding(6, 9, 6, 9)
+            setBackgroundColor(Color.WHITE)
+        }
+
+        main.addView(help)
+
+        setContentView(main)
+
+        updateEditor()
     }
 
-    private fun button(
+    private fun tool(
+        parent: LinearLayout,
         text: String,
         action: () -> Unit
     ) {
 
-        val b = Button(this).apply {
+        val button = Button(this).apply {
             this.text = text
+            textSize = 12f
             isAllCaps = false
-            textSize = 14f
             setTextColor(Color.WHITE)
-            background = rounded(blue)
-            setOnClickListener {
-                action()
-            }
+            setPadding(10, 3, 10, 3)
+            background = android.graphics.drawable
+                .GradientDrawable().apply {
+                    setColor(blue)
+                    cornerRadius = 12f
+                }
+
+            setOnClickListener { action() }
         }
 
-        root.addView(
-            b,
+        parent.addView(
+            button,
             LinearLayout.LayoutParams(
-                -1,
-                ViewGroup.LayoutParams.WRAP_CONTENT
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                48
             ).apply {
-                setMargins(0, 5, 0, 5)
+                setMargins(3, 2, 3, 2)
             }
         )
     }
 
-    private fun currentPage() =
-        pages[pageIndex]
+    private fun updateEditor() {
 
-    private fun currentArticle() =
-        currentPage().articles[articleIndex]
+        pageLabel.text =
+            "পৃষ্ঠা ${pageIndex + 1} / ${pages.size}"
 
-    private fun saveArticle() {
+        sizeLabel.text = paperType
 
-        if (!::titleInput.isInitialized) return
+        editor.invalidate()
+    }
 
-        currentArticle().apply {
-            title = titleInput.text.toString()
-            body = bodyInput.text.toString()
-            image = selectedImage
+    private fun changePage(direction: Int) {
+
+        val next = pageIndex + direction
+
+        if (next in pages.indices) {
+            pageIndex = next
+            selectedIndex = -1
+            updateEditor()
+        } else {
+            toast("আর পৃষ্ঠা নেই")
         }
     }
 
-    private fun loadArticle() {
+    private fun changePaperSize() {
 
-        val article = currentArticle()
+        val options = arrayOf(
+            "Newspaper Broadsheet (17 × 22 inch)",
+            "A4 Paper"
+        )
 
-        titleInput.setText(article.title)
-        bodyInput.setText(article.body)
+        AlertDialog.Builder(this)
+            .setTitle("পেপারের সাইজ নির্বাচন করুন")
+            .setItems(options) { _, which ->
 
-        selectedImage = article.image
+                if (which == 0) {
+                    paperWidth = 1224f
+                    paperHeight = 1584f
+                    paperType = "NEWSPAPER"
+                } else {
+                    paperWidth = 595f
+                    paperHeight = 842f
+                    paperType = "A4"
+                }
 
-        imagePreview.setImageDrawable(null)
-
-        if (selectedImage.isNotEmpty()) {
-            try {
-                imagePreview.setImageURI(
-                    Uri.parse(selectedImage)
-                )
-            } catch (_: Exception) {
-                selectedImage = ""
+                updateEditor()
             }
+            .show()
+    }
+
+    private fun addText(type: String) {
+
+        val input = EditText(this).apply {
+            hint = if (type == "headline")
+                "সংবাদের শিরোনাম লিখুন"
+            else
+                "সংবাদের বিস্তারিত লিখুন"
+
+            textSize = 17f
+            minLines = if (type == "body") 5 else 2
+
+            gravity = Gravity.TOP
+
+            inputType =
+                android.text.InputType.TYPE_CLASS_TEXT or
+                android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
         }
 
-        pageInfo.text =
-            "পৃষ্ঠা ${pageIndex + 1} / ${pages.size}"
+        AlertDialog.Builder(this)
+            .setTitle("নতুন খবর তৈরি করুন")
+            .setView(input)
+            .setPositiveButton("যোগ করুন") { _, _ ->
 
-        articleInfo.text =
-            "এই পাতার খবর ${articleIndex + 1} / " +
-            "${currentPage().articles.size}"
+                val text = input.text.toString()
+
+                if (text.isNotBlank()) {
+
+                    val isHeadline = type == "headline"
+
+                    val element = NewsElement(
+                        type = type,
+                        text = text,
+                        x = 55f,
+                        y = 220f,
+                        w = paperWidth - 110f,
+                        h = if (isHeadline) 180f else 360f,
+                        fontSize = if (isHeadline) 38f else 23f
+                    )
+
+                    currentPage().add(element)
+                    selectedIndex = currentPage().lastIndex
+
+                    updateEditor()
+                }
+            }
+            .setNegativeButton("বাতিল", null)
+            .show()
+    }
+
+    private fun editSelected() {
+
+        if (selectedIndex !in currentPage().indices) {
+            toast("আগে একটি খবর নির্বাচন করুন")
+            return
+        }
+
+        val element = currentPage()[selectedIndex]
+
+        if (element.type == "image") {
+            toast("ছবি পরিবর্তন করতে নতুন ছবি বসান")
+            return
+        }
+
+        val input = EditText(this).apply {
+            setText(element.text)
+            textSize = 17f
+            minLines = 5
+            gravity = Gravity.TOP
+            inputType =
+                android.text.InputType.TYPE_CLASS_TEXT or
+                android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("খবর সম্পাদনা")
+            .setView(input)
+            .setPositiveButton("সংরক্ষণ") { _, _ ->
+                element.text = input.text.toString()
+                updateEditor()
+            }
+            .setNegativeButton("বাতিল", null)
+            .show()
+    }
+
+    private fun deleteSelected() {
+
+        if (selectedIndex in currentPage().indices) {
+            currentPage().removeAt(selectedIndex)
+            selectedIndex = -1
+            updateEditor()
+        } else {
+            toast("কোনো খবর নির্বাচন করা হয়নি")
+        }
     }
 
     private fun openGallery() {
@@ -375,9 +385,8 @@ class MainActivity : Activity() {
             Intent.ACTION_OPEN_DOCUMENT
         ).apply {
             type = "image/*"
-            addCategory(
-                Intent.CATEGORY_OPENABLE
-            )
+            addCategory(Intent.CATEGORY_OPENABLE)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
 
         startActivityForResult(intent, 200)
@@ -402,42 +411,478 @@ class MainActivity : Activity() {
             val uri = data?.data ?: return
 
             try {
+
                 val flags = data.flags and
                     Intent.FLAG_GRANT_READ_URI_PERMISSION
 
                 if (flags != 0) {
-                    contentResolver
-                        .takePersistableUriPermission(
-                            uri,
-                            flags
-                        )
+                    contentResolver.takePersistableUriPermission(
+                        uri, flags
+                    )
                 }
 
-                selectedImage = uri.toString()
-                imagePreview.setImageURI(uri)
-                saveArticle()
+                val element = NewsElement(
+                    type = "image",
+                    imageUri = uri.toString(),
+                    x = 55f,
+                    y = 220f,
+                    w = paperWidth * 0.55f,
+                    h = paperHeight * 0.20f
+                )
 
-            } catch (_: Exception) {
-                toast("ছবি নির্বাচন করা যায়নি")
+                currentPage().add(element)
+                selectedIndex = currentPage().lastIndex
+
+                updateEditor()
+
+            } catch (e: Exception) {
+                toast("ছবি যোগ করা যায়নি: ${e.message}")
             }
         }
 
         if (requestCode == 101) {
-            data?.data?.let {
-                exportPdf(it)
-            }
+            data?.data?.let { savePdf(it) }
         }
     }
 
-    private fun createPdf() {
+    private fun savePageState() {
+        editor.invalidate()
+    }
+
+    // ---------------- NEWSPAPER DESIGN VIEW ----------------
+
+    inner class NewspaperView : View(this@MainActivity) {
+
+        private var scaleFactor = 1f
+        private var offsetX = 0f
+        private var offsetY = 0f
+
+        private var moving = false
+        private var resizing = false
+
+        private var lastX = 0f
+        private var lastY = 0f
+
+        private val paperPaint = Paint(
+            Paint.ANTI_ALIAS_FLAG
+        ).apply {
+            color = Color.WHITE
+        }
+
+        private val borderPaint = Paint(
+            Paint.ANTI_ALIAS_FLAG
+        ).apply {
+            color = blue
+            style = Paint.Style.STROKE
+            strokeWidth = 3f
+        }
+
+        private val selectedPaint = Paint(
+            Paint.ANTI_ALIAS_FLAG
+        ).apply {
+            color = Color.rgb(20, 120, 220)
+            style = Paint.Style.STROKE
+            strokeWidth = 4f
+        }
+
+        private val handlePaint = Paint(
+            Paint.ANTI_ALIAS_FLAG
+        ).apply {
+            color = Color.RED
+            style = Paint.Style.FILL
+        }
+
+        override fun onDraw(canvas: Canvas) {
+            super.onDraw(canvas)
+
+            canvas.drawColor(Color.rgb(220, 225, 232))
+
+            scaleFactor = min(
+                width / paperWidth,
+                height / paperHeight
+            ).coerceAtLeast(0.01f)
+
+            offsetX =
+                (width - paperWidth * scaleFactor) / 2f
+
+            offsetY =
+                (height - paperHeight * scaleFactor) / 2f
+
+            canvas.save()
+
+            canvas.translate(offsetX, offsetY)
+            canvas.scale(scaleFactor, scaleFactor)
+
+            canvas.drawRect(
+                0f, 0f,
+                paperWidth, paperHeight,
+                paperPaint
+            )
+
+            drawMasthead(canvas, pageIndex + 1)
+
+            currentPage().forEachIndexed { index, element ->
+
+                drawElement(canvas, element)
+
+                if (index == selectedIndex) {
+                    drawSelection(canvas, element)
+                }
+            }
+
+            canvas.drawRect(
+                1f, 1f,
+                paperWidth - 1f,
+                paperHeight - 1f,
+                borderPaint
+            )
+
+            canvas.restore()
+        }
+
+        private fun drawMasthead(
+            canvas: Canvas,
+            number: Int
+        ) {
+
+            val titlePaint = Paint(
+                Paint.ANTI_ALIAS_FLAG
+            ).apply {
+                color = navy
+                textSize = if (paperType == "A4") 27f else 48f
+                textAlign = Paint.Align.CENTER
+                typeface = Typeface.DEFAULT_BOLD
+            }
+
+            val metaPaint = Paint(
+                Paint.ANTI_ALIAS_FLAG
+            ).apply {
+                color = Color.DKGRAY
+                textSize = if (paperType == "A4") 10f else 20f
+                textAlign = Paint.Align.CENTER
+            }
+
+            val date = SimpleDateFormat(
+                "dd-MM-yyyy",
+                Locale.getDefault()
+            ).format(Date())
+
+            val linePaint = Paint(
+                Paint.ANTI_ALIAS_FLAG
+            ).apply {
+                color = blue
+                strokeWidth = if (paperType == "A4") 3f else 7f
+            }
+
+            canvas.drawText(
+                "ES NEWS",
+                paperWidth / 2,
+                if (paperType == "A4") 50f else 75f,
+                titlePaint
+            )
+
+            canvas.drawText(
+                date,
+                paperWidth / 2,
+                if (paperType == "A4") 70f else 110f,
+                metaPaint
+            )
+
+            canvas.drawText(
+                "সংবাদ • মতামত • স্থানীয় খবর",
+                paperWidth / 2,
+                if (paperType == "A4") 88f else 145f,
+                metaPaint
+            )
+
+            canvas.drawLine(
+                45f,
+                if (paperType == "A4") 105f else 175f,
+                paperWidth - 45f,
+                if (paperType == "A4") 105f else 175f,
+                linePaint
+            )
+
+            val pagePaint = Paint(
+                Paint.ANTI_ALIAS_FLAG
+            ).apply {
+                color = Color.GRAY
+                textSize = 15f
+                textAlign = Paint.Align.CENTER
+            }
+
+            canvas.drawText(
+                "পৃষ্ঠা $number",
+                paperWidth / 2,
+                paperHeight - 25f,
+                pagePaint
+            )
+        }
+
+        private fun drawElement(
+            canvas: Canvas,
+            element: NewsElement
+        ) {
+
+            val rect = RectF(
+                element.x,
+                element.y,
+                element.x + element.w,
+                element.y + element.h
+            )
+
+            if (element.type == "image") {
+
+                val bitmap = getBitmap(element.imageUri)
+
+                if (bitmap != null) {
+
+                    val imagePaint = Paint(
+                        Paint.ANTI_ALIAS_FLAG or
+                            Paint.FILTER_BITMAP_FLAG
+                    )
+
+                    canvas.drawBitmap(
+                        bitmap,
+                        null,
+                        rect,
+                        imagePaint
+                    )
+
+                } else {
+                    canvas.drawRect(rect, borderPaint)
+                }
+
+            } else {
+
+                val textPaint = TextPaint(
+                    Paint.ANTI_ALIAS_FLAG
+                ).apply {
+                    color = Color.BLACK
+                    textSize = element.fontSize
+                    typeface = if (element.type == "headline")
+                        Typeface.create(
+                            "sans-serif",
+                            Typeface.BOLD
+                        )
+                    else
+                        Typeface.create(
+                            "sans-serif",
+                            Typeface.NORMAL
+                        )
+                }
+
+                val safeText = element.text.ifBlank { " " }
+
+                val layout = StaticLayout.Builder.obtain(
+                    safeText,
+                    0,
+                    safeText.length,
+                    textPaint,
+                    max(1, element.w.toInt())
+                )
+                    .setAlignment(
+                        Layout.Alignment.ALIGN_NORMAL
+                    )
+                    .setIncludePad(true)
+                    .setLineSpacing(2f, 1f)
+                    .build()
+
+                canvas.save()
+
+                canvas.clipRect(rect)
+
+                canvas.translate(
+                    element.x,
+                    element.y
+                )
+
+                layout.draw(canvas)
+
+                canvas.restore()
+            }
+        }
+
+        private fun drawSelection(
+            canvas: Canvas,
+            element: NewsElement
+        ) {
+
+            val rect = RectF(
+                element.x,
+                element.y,
+                element.x + element.w,
+                element.y + element.h
+            )
+
+            canvas.drawRect(rect, selectedPaint)
+
+            canvas.drawCircle(
+                rect.right,
+                rect.bottom,
+                17f,
+                handlePaint
+            )
+        }
+
+        private fun getBitmap(uri: String): Bitmap? {
+
+            if (uri.isBlank()) return null
+
+            if (bitmapCache.containsKey(uri)) {
+                return bitmapCache[uri]
+            }
+
+            return try {
+
+                val bitmap = contentResolver
+                    .openInputStream(Uri.parse(uri))
+                    .use { stream ->
+                        BitmapFactory.decodeStream(stream)
+                    }
+
+                if (bitmap != null) {
+                    bitmapCache[uri] = bitmap
+                }
+
+                bitmap
+
+            } catch (_: Exception) {
+                null
+            }
+        }
+
+        override fun onTouchEvent(event: MotionEvent): Boolean {
+
+            val docX =
+                (event.x - offsetX) / scaleFactor
+
+            val docY =
+                (event.y - offsetY) / scaleFactor
+
+            when (event.action) {
+
+                MotionEvent.ACTION_DOWN -> {
+
+                    moving = false
+                    resizing = false
+
+                    lastX = docX
+                    lastY = docY
+
+                    selectedIndex = -1
+
+                    for (i in currentPage().indices.reversed()) {
+
+                        val element = currentPage()[i]
+
+                        val right = element.x + element.w
+                        val bottom = element.y + element.h
+
+                        if (
+                            docX >= right - 30f &&
+                            docX <= right + 30f &&
+                            docY >= bottom - 30f &&
+                            docY <= bottom + 30f
+                        ) {
+
+                            selectedIndex = i
+                            resizing = true
+                            break
+                        }
+
+                        if (
+                            docX >= element.x &&
+                            docX <= right &&
+                            docY >= element.y &&
+                            docY <= bottom
+                        ) {
+
+                            selectedIndex = i
+                            moving = true
+                            break
+                        }
+                    }
+
+                    invalidate()
+                    return true
+                }
+
+                MotionEvent.ACTION_MOVE -> {
+
+                    if (selectedIndex in currentPage().indices) {
+
+                        val element = currentPage()[selectedIndex]
+
+                        val dx = docX - lastX
+                        val dy = docY - lastY
+
+                        if (moving) {
+
+                            element.x = (
+                                element.x + dx
+                            ).coerceIn(
+                                0f,
+                                paperWidth - element.w
+                            )
+
+                            element.y = (
+                                element.y + dy
+                            ).coerceIn(
+                                175f,
+                                paperHeight - 40f
+                            )
+                        }
+
+                        if (resizing) {
+
+                            element.w = (
+                                element.w + dx
+                            ).coerceIn(
+                                80f,
+                                paperWidth - element.x
+                            )
+
+                            element.h = (
+                                element.h + dy
+                            ).coerceIn(
+                                50f,
+                                paperHeight - element.y - 40f
+                            )
+                        }
+
+                        lastX = docX
+                        lastY = docY
+
+                        invalidate()
+                    }
+
+                    return true
+                }
+
+                MotionEvent.ACTION_UP,
+                MotionEvent.ACTION_CANCEL -> {
+
+                    moving = false
+                    resizing = false
+
+                    invalidate()
+                    return true
+                }
+            }
+
+            return true
+        }
+    }
+
+    // ---------------- PDF EXPORT ----------------
+
+    private fun exportPdfDialog() {
 
         val intent = Intent(
             Intent.ACTION_CREATE_DOCUMENT
         ).apply {
-            addCategory(
-                Intent.CATEGORY_OPENABLE
-            )
-
+            addCategory(Intent.CATEGORY_OPENABLE)
             type = "application/pdf"
 
             putExtra(
@@ -449,394 +894,41 @@ class MainActivity : Activity() {
         startActivityForResult(intent, 101)
     }
 
-    private fun exportPdf(uri: Uri) {
+    private fun savePdf(uri: Uri) {
 
         val pdf = PdfDocument()
 
-        // BROADSHEET NEWSPAPER
-        // 17 x 22 inches at 72 PDF points/inch
-
-        val pageWidth = 1224
-        val pageHeight = 1584
-
-        val margin = 55f
-        val gap = 28f
-        val columns = 3
-
-        val columnWidth =
-            (pageWidth - margin * 2 -
-                gap * (columns - 1)) / columns
-
-        val top = 190f
-        val bottom = 1510f
-
-        val headingPaint = TextPaint(
-            Paint.ANTI_ALIAS_FLAG
-        ).apply {
-            color = Color.BLACK
-            textSize = 25f
-            typeface = Typeface.create(
-                "sans-serif",
-                Typeface.BOLD
-            )
-        }
-
-        val bodyPaint = TextPaint(
-            Paint.ANTI_ALIAS_FLAG
-        ).apply {
-            color = Color.rgb(35, 35, 35)
-            textSize = 17f
-            typeface = Typeface.create(
-                "sans-serif",
-                Typeface.NORMAL
-            )
-        }
-
-        val metaPaint = Paint(
-            Paint.ANTI_ALIAS_FLAG
-        ).apply {
-            color = Color.DKGRAY
-            textSize = 18f
-            textAlign = Paint.Align.CENTER
-        }
-
-        val mastheadPaint = Paint(
-            Paint.ANTI_ALIAS_FLAG
-        ).apply {
-            color = navy
-            textSize = 48f
-            textAlign = Paint.Align.CENTER
-            typeface = Typeface.DEFAULT_BOLD
-        }
-
-        var currentPage: PdfDocument.Page? = null
-        var canvas: Canvas? = null
-
-        var physicalPage = 0
-        var column = 0
-        var y = top
-
-        fun xPosition(): Float {
-            return margin +
-                column * (columnWidth + gap)
-        }
-
-        fun startPage() {
-
-            physicalPage++
-
-            val pageInfo =
-                PdfDocument.PageInfo.Builder(
-                    pageWidth,
-                    pageHeight,
-                    physicalPage
-                ).create()
-
-            currentPage = pdf.startPage(pageInfo)
-            canvas = currentPage!!.canvas
-
-            canvas!!.drawColor(Color.WHITE)
-
-            canvas!!.drawText(
-                paperName.text.toString().ifBlank {
-                    "ES NEWS"
-                },
-                pageWidth / 2f,
-                65f,
-                mastheadPaint
-            )
-
-            canvas!!.drawText(
-                paperDate.text.toString(),
-                pageWidth / 2f,
-                100f,
-                metaPaint
-            )
-
-            canvas!!.drawText(
-                "সংবাদ • মতামত • স্থানীয় খবর",
-                pageWidth / 2f,
-                130f,
-                metaPaint
-            )
-
-            val linePaint = Paint(
-                Paint.ANTI_ALIAS_FLAG
-            ).apply {
-                color = blue
-                strokeWidth = 6f
-            }
-
-            canvas!!.drawLine(
-                margin,
-                155f,
-                pageWidth - margin,
-                155f,
-                linePaint
-            )
-
-            column = 0
-            y = top
-
-            val pageNumberPaint = Paint(
-                Paint.ANTI_ALIAS_FLAG
-            ).apply {
-                color = Color.GRAY
-                textSize = 15f
-                textAlign = Paint.Align.CENTER
-            }
-
-            canvas!!.drawText(
-                "পৃষ্ঠা $physicalPage",
-                pageWidth / 2f,
-                1540f,
-                pageNumberPaint
-            )
-        }
-
-        fun finishPage() {
-            currentPage?.let {
-                pdf.finishPage(it)
-            }
-
-            currentPage = null
-            canvas = null
-        }
-
-        fun nextColumn() {
-
-            if (column < columns - 1) {
-                column++
-                y = top
-            } else {
-                finishPage()
-                startPage()
-            }
-        }
-
-        fun newManualPage() {
-            if (currentPage != null) {
-                finishPage()
-            }
-            startPage()
-        }
-
-        fun makeLayout(
-            text: String,
-            paint: TextPaint
-        ): StaticLayout {
-
-            val safeText = text.ifBlank {
-                " "
-            }
-
-            return StaticLayout.Builder.obtain(
-                safeText,
-                0,
-                safeText.length,
-                paint,
-                columnWidth.toInt()
-            )
-                .setAlignment(
-                    Layout.Alignment.ALIGN_NORMAL
-                )
-                .setIncludePad(true)
-                .setLineSpacing(3f, 1f)
-                .build()
-        }
-
-        // Draws Bengali text line by line.
-        // If a column fills, continues in the next column.
-
-        fun drawTextFlow(layout: StaticLayout) {
-
-            for (i in 0 until layout.lineCount) {
-
-                val lineTop =
-                    layout.getLineTop(i).toFloat()
-
-                val lineHeight = (
-                    layout.getLineBottom(i) -
-                    layout.getLineTop(i)
-                ).toFloat().coerceAtLeast(1f)
-
-                if (y + lineHeight > bottom) {
-                    nextColumn()
-                }
-
-                val x = xPosition()
-                val currentY = y
-
-                canvas!!.save()
-
-                canvas!!.clipRect(
-                    x,
-                    currentY,
-                    x + columnWidth,
-                    currentY + lineHeight + 2f
-                )
-
-                canvas!!.translate(
-                    x,
-                    currentY - lineTop
-                )
-
-                layout.draw(canvas!!)
-
-                canvas!!.restore()
-
-                y += lineHeight
-            }
-        }
-
-        fun drawArticle(article: NewsArticle) {
-
-            if (article.title.isBlank() &&
-                article.body.isBlank() &&
-                article.image.isBlank()
-            ) return
-
-            val titleLayout = makeLayout(
-                article.title.ifBlank {
-                    "সংবাদের শিরোনাম"
-                },
-                headingPaint
-            )
-
-            val bodyLayout = makeLayout(
-                article.body,
-                bodyPaint
-            )
-
-            var bitmap: Bitmap? = null
-
-            if (article.image.isNotBlank()) {
-                try {
-                    bitmap = contentResolver
-                        .openInputStream(
-                            Uri.parse(article.image)
-                        ).use {
-                            BitmapFactory.decodeStream(it)
-                        }
-                } catch (_: Exception) {
-                    bitmap = null
-                }
-            }
-
-            var imageWidth = 0f
-            var imageHeight = 0f
-
-            bitmap?.let {
-                val scale = min(
-                    columnWidth / it.width.toFloat(),
-                    240f / it.height.toFloat()
-                )
-
-                imageWidth = it.width * scale
-                imageHeight = it.height * scale
-            }
-
-            val requiredSpace =
-                titleLayout.height +
-                imageHeight +
-                50f
-
-            if (requiredSpace < bottom - top &&
-                y + requiredSpace > bottom
-            ) {
-                nextColumn()
-            }
-
-            // Headline
-
-            drawTextFlow(titleLayout)
-
-            y += 12f
-
-            // News photograph
-
-            bitmap?.let { image ->
-
-                if (y + imageHeight > bottom) {
-                    nextColumn()
-                }
-
-                val x = xPosition() +
-                    (columnWidth - imageWidth) / 2f
-
-                val rect = RectF(
-                    x,
-                    y,
-                    x + imageWidth,
-                    y + imageHeight
-                )
-
-                canvas!!.drawBitmap(
-                    image,
-                    null,
-                    rect,
-                    Paint(
-                        Paint.ANTI_ALIAS_FLAG or
-                        Paint.FILTER_BITMAP_FLAG
-                    )
-                )
-
-                y += imageHeight + 12f
-
-                image.recycle()
-            }
-
-            // News details
-
-            drawTextFlow(bodyLayout)
-
-            y += 16f
-
-            // Article separator
-
-            if (y + 10f < bottom) {
-
-                val divider = Paint(
-                    Paint.ANTI_ALIAS_FLAG
-                ).apply {
-                    color = Color.LTGRAY
-                    strokeWidth = 1.5f
-                }
-
-                canvas!!.drawLine(
-                    xPosition(),
-                    y,
-                    xPosition() + columnWidth,
-                    y,
-                    divider
-                )
-
-                y += 20f
-            }
-        }
-
         try {
 
-            startPage()
+            pages.forEachIndexed { index, elements ->
 
-            pages.forEachIndexed { index, newsPage ->
+                val pageInfo =
+                    PdfDocument.PageInfo.Builder(
+                        paperWidth.toInt(),
+                        paperHeight.toInt(),
+                        index + 1
+                    ).create()
 
-                // Each manually created newspaper page
-                // begins on a fresh PDF page.
+                val page = pdf.startPage(pageInfo)
 
-                if (index > 0) {
-                    newManualPage()
+                page.canvas.drawColor(Color.WHITE)
+
+                drawPdfMasthead(
+                    page.canvas,
+                    index + 1
+                )
+
+                elements.forEach { element ->
+                    drawPdfElement(
+                        page.canvas,
+                        element
+                    )
                 }
 
-                newsPage.articles.forEach { article ->
-                    drawArticle(article)
-                }
+                pdf.finishPage(page)
             }
 
-            finishPage()
-
-            contentResolver.openOutputStream(uri).use {
-                output ->
+            contentResolver.openOutputStream(uri).use { output ->
 
                 requireNotNull(output) {
                     "PDF ফাইল খোলা যায়নি"
@@ -845,28 +937,187 @@ class MainActivity : Activity() {
                 pdf.writeTo(output)
             }
 
-            pdf.close()
-
             toast("সম্পূর্ণ Newspaper PDF তৈরি হয়েছে!")
 
         } catch (e: Exception) {
 
-            try {
-                finishPage()
-                pdf.close()
-            } catch (_: Exception) {
-            }
+            toast("PDF Error: ${e.message}")
 
-            toast(
-                "PDF Error: ${e.message}"
-            )
+        } finally {
+            pdf.close()
         }
     }
 
-    private fun toast(text: String) {
+    private fun drawPdfMasthead(
+        canvas: Canvas,
+        number: Int
+    ) {
+
+        val titlePaint = Paint(
+            Paint.ANTI_ALIAS_FLAG
+        ).apply {
+            color = navy
+            textSize = if (paperType == "A4") 27f else 48f
+            textAlign = Paint.Align.CENTER
+            typeface = Typeface.DEFAULT_BOLD
+        }
+
+        val metaPaint = Paint(
+            Paint.ANTI_ALIAS_FLAG
+        ).apply {
+            color = Color.DKGRAY
+            textSize = if (paperType == "A4") 10f else 20f
+            textAlign = Paint.Align.CENTER
+        }
+
+        val date = SimpleDateFormat(
+            "dd-MM-yyyy",
+            Locale.getDefault()
+        ).format(Date())
+
+        canvas.drawText(
+            "ES NEWS",
+            paperWidth / 2,
+            if (paperType == "A4") 50f else 75f,
+            titlePaint
+        )
+
+        canvas.drawText(
+            date,
+            paperWidth / 2,
+            if (paperType == "A4") 70f else 110f,
+            metaPaint
+        )
+
+        canvas.drawText(
+            "সংবাদ • মতামত • স্থানীয় খবর",
+            paperWidth / 2,
+            if (paperType == "A4") 88f else 145f,
+            metaPaint
+        )
+
+        val linePaint = Paint(
+            Paint.ANTI_ALIAS_FLAG
+        ).apply {
+            color = blue
+            strokeWidth = if (paperType == "A4") 3f else 7f
+        }
+
+        canvas.drawLine(
+            45f,
+            if (paperType == "A4") 105f else 175f,
+            paperWidth - 45f,
+            if (paperType == "A4") 105f else 175f,
+            linePaint
+        )
+
+        val footer = Paint(
+            Paint.ANTI_ALIAS_FLAG
+        ).apply {
+            color = Color.GRAY
+            textSize = 15f
+            textAlign = Paint.Align.CENTER
+        }
+
+        canvas.drawText(
+            "পৃষ্ঠা $number",
+            paperWidth / 2,
+            paperHeight - 25f,
+            footer
+        )
+    }
+
+    private fun drawPdfElement(
+        canvas: Canvas,
+        element: NewsElement
+    ) {
+
+        val rect = RectF(
+            element.x,
+            element.y,
+            element.x + element.w,
+            element.y + element.h
+        )
+
+        if (element.type == "image") {
+
+            val bitmap = getPdfBitmap(element.imageUri)
+
+            if (bitmap != null) {
+
+                canvas.drawBitmap(
+                    bitmap,
+                    null,
+                    rect,
+                    Paint(
+                        Paint.ANTI_ALIAS_FLAG or
+                            Paint.FILTER_BITMAP_FLAG
+                    )
+                )
+            }
+
+        } else {
+
+            val paint = TextPaint(
+                Paint.ANTI_ALIAS_FLAG
+            ).apply {
+                color = Color.BLACK
+                textSize = element.fontSize
+                typeface = if (element.type == "headline")
+                    Typeface.create(
+                        "sans-serif",
+                        Typeface.BOLD
+                    )
+                else
+                    Typeface.create(
+                        "sans-serif",
+                        Typeface.NORMAL
+                    )
+            }
+
+            val text = element.text.ifBlank { " " }
+
+            val layout = StaticLayout.Builder.obtain(
+                text,
+                0,
+                text.length,
+                paint,
+                max(1, element.w.toInt())
+            )
+                .setAlignment(
+                    Layout.Alignment.ALIGN_NORMAL
+                )
+                .setIncludePad(true)
+                .setLineSpacing(2f, 1f)
+                .build()
+
+            canvas.save()
+            canvas.clipRect(rect)
+            canvas.translate(element.x, element.y)
+            layout.draw(canvas)
+            canvas.restore()
+        }
+    }
+
+    private fun getPdfBitmap(uri: String): Bitmap? {
+
+        if (uri.isBlank()) return null
+
+        return try {
+            contentResolver
+                .openInputStream(Uri.parse(uri))
+                .use { stream ->
+                    BitmapFactory.decodeStream(stream)
+                }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun toast(message: String) {
         Toast.makeText(
             this,
-            text,
+            message,
             Toast.LENGTH_LONG
         ).show()
     }
